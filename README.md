@@ -12,7 +12,7 @@ A fork of [DXVK](https://github.com/doitsujin/dxvk) with the following modificat
 
 Releases of this fork can be found [here](https://github.com/Raz0r1337/dxvk/releases). They contain a zip archive with only the 32-bit `d3d9.dll`, which goes into the WoW directory next to the game executable.
 
-A Vulkan-based translation layer for Direct3D 8/9/10/11 which allows running 3D applications on Linux using Wine.
+DXVK is a Vulkan-based translation layer for Direct3D 8/9/10/11 which allows running 3D applications on Linux using Wine.
 
 For the current status of the project, please refer to the [project wiki](https://github.com/doitsujin/dxvk/wiki).
 
