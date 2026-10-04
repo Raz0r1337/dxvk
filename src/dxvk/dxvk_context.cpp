@@ -125,6 +125,8 @@ namespace dxvk {
 
 
   void DxvkContext::endFrame() {
+    this->endRenderPass(true);
+
     m_renderPassIndex = 0u;
 
     if (m_frameCount >= m_framesToCapture.first && m_frameCount < m_framesToCapture.second)
@@ -8763,29 +8765,6 @@ namespace dxvk {
   }
 
 
-  bool DxvkContext::tryInvalidateDeviceLocalBuffer(
-      const Rc<DxvkBuffer>&           buffer,
-            VkDeviceSize              copySize) {
-    // We can only discard if the full buffer gets written, and we will only discard
-    // small buffers in order to not waste significant amounts of memory.
-    if (copySize != buffer->info().size || copySize > 0x40000)
-      return false;
-
-    // Check if the buffer is safe to move at all
-    if (!buffer->canRelocate())
-      return false;
-
-    // Suspend the current render pass if transform feedback is active prior to
-    // invalidating the buffer, since otherwise we may invalidate a bound buffer.
-    if ((buffer->info().usage & VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT)
-     && (m_flags.test(DxvkContextFlag::GpXfbActive)))
-      this->endCurrentPass(true);
-
-    this->invalidateBuffer(buffer, buffer->allocateStorage());
-    return true;
-  }
-
-
   Rc<DxvkImageView> DxvkContext::ensureImageViewCompatibility(
     const Rc<DxvkImageView>&        view,
           VkImageUsageFlagBits      usage) {
@@ -9701,15 +9680,18 @@ namespace dxvk {
 
 
   void DxvkContext::prepareSharedImages() {
-    // Only flush clears for shared images, and restore layouts
-    bool hasSharedClear = false;
+    small_vector<Rc<DxvkImage>, 8u> imagesToClear;
 
-    for (const auto& image : m_nonDefaultLayoutImages) {
-      if (image->info().shared)
-        hasSharedClear = flushDeferredClear(*image, image->getAvailableSubresources());
+    // Only flush clears for shared images, and restore layouts
+    for (const auto& clear : m_deferredClears) {
+      if (clear.imageView->image()->info().shared)
+        imagesToClear.push_back(clear.imageView->image());
     }
 
-    if (hasSharedClear)
+    for (const auto& image : imagesToClear)
+      flushDeferredClear(*image, image->getAvailableSubresources());
+
+    if (!imagesToClear.empty())
       flushBarriers();
 
     restoreImageLayouts([] (DxvkImage& image) {

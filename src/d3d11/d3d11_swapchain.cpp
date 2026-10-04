@@ -184,7 +184,7 @@ namespace dxvk {
       m_presenter->setSurfaceFormat(GetSurfaceFormat(pDesc->Format));
 
     if (m_desc.Width != pDesc->Width || m_desc.Height != pDesc->Height)
-      m_presenter->setSurfaceExtent({ m_desc.Width, m_desc.Height });
+      m_presenter->setSurfaceExtent({ pDesc->Width, pDesc->Height });
 
     m_desc = *pDesc;
     CreateBackBuffers();
@@ -348,8 +348,13 @@ namespace dxvk {
 
   void STDMETHODCALLTYPE D3D11SwapChain::GetFrameStatistics(
           DXGI_VK_FRAME_STATISTICS* pFrameStatistics) {
-    std::lock_guard<dxvk::mutex> lock(m_frameStatisticsLock);
-    *pFrameStatistics = m_frameStatistics;
+    PresenterTimingFeedback feedback = {};
+
+    if (m_presenter)
+      feedback = m_presenter->queryPresentTiming();
+
+    pFrameStatistics->PresentCount = std::max<uint64_t>(feedback.frameId, DXGI_MAX_SWAP_CHAIN_BUFFERS) - DXGI_MAX_SWAP_CHAIN_BUFFERS;
+    pFrameStatistics->PresentQPCTime = feedback.presentTime;
   }
 
 
@@ -708,16 +713,11 @@ namespace dxvk {
     // Wait for the sync event so that we respect the maximum frame latency
     m_frameLatencySignal->wait(m_frameId - GetActualFrameLatency());
 
-    m_frameLatencySignal->setCallback(m_frameId, [this,
-      cFrameId           = m_frameId,
+    m_frameLatencySignal->setCallback(m_frameId, [
       cFrameLatencyEvent = m_frameLatencyEvent
     ] () {
       if (cFrameLatencyEvent)
         ReleaseSemaphore(cFrameLatencyEvent, 1, nullptr);
-
-      std::lock_guard<dxvk::mutex> lock(m_frameStatisticsLock);
-      m_frameStatistics.PresentCount = cFrameId - DXGI_MAX_SWAP_CHAIN_BUFFERS;
-      m_frameStatistics.PresentQPCTime = dxvk::high_resolution_clock::get_counter();
     });
   }
 
@@ -1069,8 +1069,20 @@ namespace dxvk {
       }
     }
 
-    // Ensure D3D context state is properly reapplied
-    pContext->EmitCs([] (DxvkContext* ctx) {
+    // Write composition image back to last back buffer, apparently
+    // this is supposed to be fully preserved across frames.
+    pContext->EmitCs([
+      cComposition = m_compositionBuffer,
+      cBackBuffer  = GetCommonTexture(m_backBuffers.back().ptr())->GetImage()
+    ] (DxvkContext* ctx) {
+      VkImageSubresourceLayers subresource = {};
+      subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      subresource.layerCount = 1u;
+
+      ctx->copyImage(cBackBuffer, subresource, VkOffset3D(),
+        cComposition, subresource, VkOffset3D(),
+        cComposition->mipLevelExtent(0u));
+
       ctx->endDebugLabel();
     });
 

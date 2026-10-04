@@ -1356,8 +1356,16 @@ namespace dxvk {
     if (src->GetSurfaceExtent() != dst->GetSurfaceExtent())
       return D3DERR_INVALIDCALL;
 
-    if (dstTexInfo->Desc()->Pool == D3DPOOL_DEFAULT)
-      return this->StretchRect(pRenderTarget, nullptr, pDestSurface, nullptr, D3DTEXF_NONE);
+    if (unlikely(srcTexInfo->Desc()->Pool != D3DPOOL_DEFAULT))
+      return D3DERR_INVALIDCALL;
+
+    // Our D3D8 implementation uses it in CopyRects to copy DEFAULT -> SYSTEMMEM/SCRATCH/MANAGED.
+    // TODO: Using it for MANAGED is problematic because it doesn't update the image of a MANAGED texture.
+    if (unlikely(!m_d3dCompatibility.test(D3DCompatibility::D3D8) && dstTexInfo->Desc()->Pool != D3DPOOL_SYSTEMMEM))
+      return D3DERR_INVALIDCALL;
+
+    if (unlikely(srcTexInfo->Desc()->MultiSample != D3DMULTISAMPLE_NONE))
+      return D3DERR_INVALIDCALL;
 
     VkExtent3D dstTexExtent = dstTexInfo->GetExtentMip(dst->GetMipLevel());
     VkExtent3D srcTexExtent = srcTexInfo->GetExtentMip(src->GetMipLevel());
@@ -4485,13 +4493,7 @@ namespace dxvk {
     if (unlikely(ppSurface == nullptr))
       return D3DERR_INVALIDCALL;
 
-    // The new Create functions added in 9Ex only accept the new USAGE flags added with 9Ex.
-    // Yes, it actually fails when explicitly passing D3DUSAGE_RENDERTARGET.
-    if (unlikely(Usage & ~(D3DUSAGE_RESTRICTED_CONTENT | D3DUSAGE_RESTRICT_SHARED_RESOURCE | D3DUSAGE_RESTRICT_SHARED_RESOURCE_DRIVER)))
-      return D3DERR_INVALIDCALL;
-
-    if (unlikely((Usage & (D3DUSAGE_RESTRICT_SHARED_RESOURCE | D3DUSAGE_RESTRICT_SHARED_RESOURCE_DRIVER)) != 0
-      && pSharedHandle == nullptr))
+    if (unlikely(!D3D9CommonTexture::ValidateExUsages(Usage, pSharedHandle)))
       return D3DERR_INVALIDCALL;
 
     D3D9_COMMON_TEXTURE_DESC desc;
@@ -4547,12 +4549,7 @@ namespace dxvk {
     if (unlikely(ppSurface == nullptr))
       return D3DERR_INVALIDCALL;
 
-    // The new Create functions added in 9Ex only accept the new USAGE flags added with 9Ex.
-    if (unlikely(Usage & ~(D3DUSAGE_RESTRICTED_CONTENT | D3DUSAGE_RESTRICT_SHARED_RESOURCE | D3DUSAGE_RESTRICT_SHARED_RESOURCE_DRIVER)))
-      return D3DERR_INVALIDCALL;
-
-    if (unlikely((Usage & (D3DUSAGE_RESTRICT_SHARED_RESOURCE | D3DUSAGE_RESTRICT_SHARED_RESOURCE_DRIVER)) != 0
-      && pSharedHandle == nullptr))
+    if (unlikely(!D3D9CommonTexture::ValidateExUsages(Usage, pSharedHandle)))
       return D3DERR_INVALIDCALL;
 
     D3D9_COMMON_TEXTURE_DESC desc;
@@ -4631,13 +4628,7 @@ namespace dxvk {
     if (unlikely(ppSurface == nullptr))
       return D3DERR_INVALIDCALL;
 
-    // The new Create functions added in 9Ex only accept the new USAGE flags added with 9Ex.
-    // Yes, it actually fails when explicitly passing D3DUSAGE_DEPTHSTENCIL.
-    if (unlikely(Usage & ~(D3DUSAGE_RESTRICTED_CONTENT | D3DUSAGE_RESTRICT_SHARED_RESOURCE | D3DUSAGE_RESTRICT_SHARED_RESOURCE_DRIVER)))
-      return D3DERR_INVALIDCALL;
-
-    if (unlikely((Usage & (D3DUSAGE_RESTRICT_SHARED_RESOURCE | D3DUSAGE_RESTRICT_SHARED_RESOURCE_DRIVER)) != 0
-      && pSharedHandle == nullptr))
+    if (unlikely(!D3D9CommonTexture::ValidateExUsages(Usage, pSharedHandle)))
       return D3DERR_INVALIDCALL;
 
     D3D9_COMMON_TEXTURE_DESC desc;
