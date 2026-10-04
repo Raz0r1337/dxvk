@@ -59,24 +59,13 @@ jobs:
         GH_REPO: ${{ github.repository }}
       run: |
         mkdir pkg
+        cp build/d3d9.dll pkg/
+        (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
 
         if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
           gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE"
-
-          if gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' | grep -qxF "$ZIP_FILE"; then
-            exit 0
-          fi
-
-          # Package the binary that was already published, not a rebuild
-          gh release download "$RELEASE_TAG" --pattern d3d9.dll --dir pkg || cp build/d3d9.dll pkg/
-          (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
-
-          gh release upload "$RELEASE_TAG" "$ZIP_FILE"
-          gh release delete-asset "$RELEASE_TAG" d3d9.dll --yes || true
+          gh release upload "$RELEASE_TAG" "$ZIP_FILE" --clobber
         else
-          cp build/d3d9.dll pkg/
-          (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
-
           gh release create "$RELEASE_TAG" "$ZIP_FILE" \
             --target "$RELEASE_SHA" \
             --title "$RELEASE_TITLE" \
