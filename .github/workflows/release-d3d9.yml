@@ -1,0 +1,88 @@
+name: Release DXVK modded for WoW
+
+on:
+  push:
+    branches: [st0ny-dev, st0ny-main]
+    paths: ['.github/workflows/release-d3d9.yml']
+  workflow_dispatch:
+
+env:
+  # Upstream DXVK v3.1.1 (b1a1c99) plus the local mods
+  RELEASE_SHA: b3f2bc11a58725fc9e5bb1430dfdcfb952d4efce
+  RELEASE_TAG: v3.1.1
+  RELEASE_TITLE: DXVK v3.1.1 (modded for WoW)
+  # GitHub replaces spaces in asset names with dots, the label keeps them
+  ZIP_FILE: DXVK - modded for WoW.zip
+  ZIP_ASSET: DXVK.-.modded.for.WoW.zip
+
+jobs:
+  build-d3d9-x32:
+    runs-on: ubuntu-latest
+    container: archlinux/archlinux:base-devel
+
+    steps:
+    - name: Setup container
+      run: |
+        pacman -Syu --needed --noconfirm git meson mingw-w64-gcc glslang
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ env.RELEASE_SHA }}
+        submodules: recursive
+        fetch-depth: 0
+
+    - name: Build release
+      run: |
+        ./package-release.sh ${RELEASE_TAG} build --no-package --32-only
+
+    - name: Upload d3d9.dll
+      uses: actions/upload-artifact@v7
+      with:
+        name: d3d9-x32
+        path: build/dxvk-${{ env.RELEASE_TAG }}/x32/d3d9.dll
+        if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build-d3d9-x32
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download d3d9.dll
+      uses: actions/download-artifact@v7
+      with:
+        name: d3d9-x32
+        path: build
+
+    - name: Create release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        mkdir pkg
+
+        if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+          gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE"
+
+          if gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' | grep -qxF "$ZIP_ASSET"; then
+            exit 0
+          fi
+
+          # Package the binary that was already published, not a rebuild
+          gh release download "$RELEASE_TAG" --pattern d3d9.dll --dir pkg || cp build/d3d9.dll pkg/
+          (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
+
+          gh release upload "$RELEASE_TAG" "$ZIP_FILE#$ZIP_FILE"
+          gh release delete-asset "$RELEASE_TAG" d3d9.dll --yes || true
+        else
+          cp build/d3d9.dll pkg/
+          (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
+
+          gh release create "$RELEASE_TAG" "$ZIP_FILE#$ZIP_FILE" \
+            --target "$RELEASE_SHA" \
+            --title "$RELEASE_TITLE" \
+            --notes "32-bit d3d9.dll built from upstream DXVK $RELEASE_TAG with local modifications (Logs directory, enlarged hardware cursor, WTF/dxvk.conf)."
+        fi
