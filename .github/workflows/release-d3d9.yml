@@ -1,9 +1,6 @@
 name: Release DXVK modded for WoW
 
 on:
-  push:
-    branches: [st0ny-dev, st0ny-main]
-    paths: ['.github/workflows/release-d3d9.yml']
   workflow_dispatch:
 
 env:
@@ -11,9 +8,8 @@ env:
   RELEASE_SHA: b3f2bc11a58725fc9e5bb1430dfdcfb952d4efce
   RELEASE_TAG: v3.1.1
   RELEASE_TITLE: DXVK v3.1.1 (modded for WoW)
-  # GitHub replaces spaces in asset names with dots, the label keeps them
-  ZIP_FILE: DXVK - modded for WoW.zip
-  ZIP_ASSET: DXVK.-.modded.for.WoW.zip
+  # No spaces: GitHub replaces them with dots in asset names
+  ZIP_FILE: DXVK-modded-for-WoW.zip
 
 jobs:
   build-d3d9-x32:
@@ -67,7 +63,7 @@ jobs:
         if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
           gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE"
 
-          if gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' | grep -qxF "$ZIP_ASSET"; then
+          if gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' | grep -qxF "$ZIP_FILE"; then
             exit 0
           fi
 
@@ -75,13 +71,13 @@ jobs:
           gh release download "$RELEASE_TAG" --pattern d3d9.dll --dir pkg || cp build/d3d9.dll pkg/
           (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
 
-          gh release upload "$RELEASE_TAG" "$ZIP_FILE#$ZIP_FILE"
+          gh release upload "$RELEASE_TAG" "$ZIP_FILE"
           gh release delete-asset "$RELEASE_TAG" d3d9.dll --yes || true
         else
           cp build/d3d9.dll pkg/
           (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
 
-          gh release create "$RELEASE_TAG" "$ZIP_FILE#$ZIP_FILE" \
+          gh release create "$RELEASE_TAG" "$ZIP_FILE" \
             --target "$RELEASE_SHA" \
             --title "$RELEASE_TITLE" \
             --notes "32-bit d3d9.dll built from upstream DXVK $RELEASE_TAG with local modifications (Logs directory, enlarged hardware cursor, WTF/dxvk.conf)."
