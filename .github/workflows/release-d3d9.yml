@@ -66,8 +66,10 @@ jobs:
           gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE"
           gh release upload "$RELEASE_TAG" "$ZIP_FILE" --clobber
         else
+          # The tag has to exist already: GITHUB_TOKEN may not create it, and
+          # passing the tagged commit as target is refused as well
           gh release create "$RELEASE_TAG" "$ZIP_FILE" \
-            --target "$RELEASE_SHA" \
+            --verify-tag \
             --title "$RELEASE_TITLE" \
             --notes "32-bit d3d9.dll built from upstream DXVK $RELEASE_TAG with local modifications (Logs directory, enlarged hardware cursor, WTF/dxvk.conf)."
         fi
