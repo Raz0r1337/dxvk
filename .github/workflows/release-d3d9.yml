@@ -2,6 +2,11 @@ name: Release DXVK modded for WoW
 
 on:
   workflow_dispatch:
+    inputs:
+      notes_only:
+        description: Only update title, notes and zip name, keep the published d3d9.dll
+        type: boolean
+        default: false
 
 env:
   # Upstream DXVK v3.1.1 (b1a1c99) plus the local mods
@@ -9,10 +14,11 @@ env:
   RELEASE_TAG: v3.1.1
   RELEASE_TITLE: DXVK v3.1.1 (modded for WoW)
   # No spaces: GitHub replaces them with dots in asset names
-  ZIP_FILE: DXVK-modded-for-WoW.zip
+  ZIP_FILE: DXVK-modded-for-WoW-with-Project-Reforged.zip
 
 jobs:
   build-d3d9-x32:
+    if: ${{ !inputs.notes_only }}
     runs-on: ubuntu-latest
     container: archlinux/archlinux:base-devel
 
@@ -43,33 +49,93 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: build-d3d9-x32
+    # Also run when the build was skipped for a notes-only update
+    if: ${{ !failure() && !cancelled() }}
     permissions:
       contents: write
 
     steps:
+    - name: Checkout README
+      uses: actions/checkout@v6
+      with:
+        sparse-checkout: README.md
+        sparse-checkout-cone-mode: false
+
     - name: Download d3d9.dll
+      if: ${{ !inputs.notes_only }}
       uses: actions/download-artifact@v7
       with:
         name: d3d9-x32
         path: build
 
+    - name: Write release notes
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # The list of modifications from the README, between its intro line
+        # and the paragraph about releases
+        awk '/^A fork of \[DXVK\]/ { found = 1; next }
+             /^Releases of this fork/ { found = 0 }
+             found' README.md > mods.md
+
+        if ! grep -q '[^[:space:]]' mods.md; then
+          echo "::error::List of modifications not found in README.md"
+          exit 1
+        fi
+
+        {
+          echo "32-bit d3d9.dll built from upstream DXVK $RELEASE_TAG with the following modifications:"
+          cat mods.md
+          echo "---"
+          echo
+          echo "## Original release notes of DXVK $RELEASE_TAG"
+          echo
+          gh release view "$RELEASE_TAG" --repo doitsujin/dxvk --json body -q .body
+        } > notes.md
+
+        cat notes.md
+
     - name: Create release
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
+        NOTES_ONLY: ${{ inputs.notes_only }}
       run: |
+        if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+          gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file notes.md
+        elif [ "$NOTES_ONLY" = "true" ]; then
+          echo "::error::Release $RELEASE_TAG does not exist, run without notes_only"
+          exit 1
+        fi
+
+        # Zip archives on the release other than the current one
+        old_zips() {
+          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" \
+            --jq '.assets[] | select((.name | endswith(".zip")) and .name != env.ZIP_FILE) | .id'
+        }
+
+        if [ "$NOTES_ONLY" = "true" ]; then
+          for id in $(old_zips); do
+            gh api -X PATCH "repos/$GH_REPO/releases/assets/$id" -f name="$ZIP_FILE" > /dev/null
+          done
+          exit 0
+        fi
+
         mkdir pkg
         cp build/d3d9.dll pkg/
         (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
 
         if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-          gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE"
           gh release upload "$RELEASE_TAG" "$ZIP_FILE" --clobber
+
+          for id in $(old_zips); do
+            gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"
+          done
         else
           # The tag has to exist already: GITHUB_TOKEN may not create it, and
           # passing the tagged commit as target is refused as well
           gh release create "$RELEASE_TAG" "$ZIP_FILE" \
             --verify-tag \
             --title "$RELEASE_TITLE" \
-            --notes "32-bit d3d9.dll built from upstream DXVK $RELEASE_TAG with local modifications (Logs directory, enlarged hardware cursor, WTF/dxvk.conf)."
+            --notes-file notes.md
         fi
