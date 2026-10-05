@@ -12,7 +12,7 @@ env:
   # Upstream DXVK v3.1.1 (b1a1c99) plus the local mods
   RELEASE_SHA: b3f2bc11a58725fc9e5bb1430dfdcfb952d4efce
   RELEASE_TAG: v3.1.1
-  RELEASE_TITLE: DXVK v3.1.1 (modded for WoW)
+  RELEASE_TITLE: DXVK v3.1.1 (modded for WoW with Project Reforged)
   # No spaces: GitHub replaces them with dots in asset names
   ZIP_FILE: DXVK-modded-for-WoW-with-Project-Reforged.zip
 
