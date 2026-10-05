@@ -72,6 +72,8 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        set -o pipefail
+
         # The list of modifications from the README, between its intro line
         # and the paragraph about releases
         awk '/^A fork of \[DXVK\]/ { found = 1; next }
@@ -90,7 +92,10 @@ jobs:
           echo
           echo "## Original release notes of DXVK $RELEASE_TAG"
           echo
-          gh release view "$RELEASE_TAG" --repo doitsujin/dxvk --json body -q .body
+          # Point bare issue and PR references like "#1234" to the upstream
+          # repository, they would otherwise link to this fork
+          gh release view "$RELEASE_TAG" --repo doitsujin/dxvk --json body -q .body |
+            perl -pe 's{(?<![\w/&])(?<!\]\()#(\d+)\b}{doitsujin/dxvk#$1}g'
         } > notes.md
 
         cat notes.md
