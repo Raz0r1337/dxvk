@@ -14,7 +14,7 @@ env:
   RELEASE_TAG: v3.1.1
   RELEASE_TITLE: DXVK v3.1.1 (modded for WoW with Project Reforged)
   # No spaces: GitHub replaces them with dots in asset names
-  ZIP_FILE: DXVK-modded-for-WoW-with-Project-Reforged.zip
+  ZIP_FILE: DXVK-WoW-PR.zip
 
 jobs:
   build-d3d9-x32:
