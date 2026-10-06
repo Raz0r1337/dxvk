@@ -1,25 +1,200 @@
 name: Release DXVK modded for WoW
 
+# Every push to st0ny-main checks whether upstream has been merged since the
+# latest upstream DXVK release and whether that release is still missing here.
+# If so, the upstream release tag plus the modifications from st0ny-main is
+# tagged, built and released.
+
 on:
+  push:
+    branches: [st0ny-main]
   workflow_dispatch:
     inputs:
+      tag:
+        description: Upstream release tag, e.g. v3.1.1 (empty for the latest upstream release)
+        type: string
+        default: ''
       notes_only:
         description: Only update title, notes and zip name, keep the published d3d9.dll
         type: boolean
         default: false
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
-  # Upstream DXVK v3.1.1 (b1a1c99) plus the local mods
-  RELEASE_SHA: b3f2bc11a58725fc9e5bb1430dfdcfb952d4efce
-  RELEASE_TAG: v3.1.1
-  RELEASE_TITLE: DXVK v3.1.1 (modded for WoW with Project Reforged)
+  UPSTREAM: doitsujin/dxvk
   # No spaces: GitHub replaces them with dots in asset names
   ZIP_FILE: DXVK-WoW-PR.zip
 
 jobs:
-  build-d3d9-x32:
-    if: ${{ !inputs.notes_only }}
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      latest: ${{ steps.check.outputs.latest }}
+      action: ${{ steps.check.outputs.action }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Check for a release to create
+      id: check
+      env:
+        GH_TOKEN: ${{ github.token }}
+        INPUT_TAG: ${{ inputs.tag }}
+        NOTES_ONLY: ${{ inputs.notes_only }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        set -o pipefail
+
+        latest=$(gh release view --repo "$UPSTREAM" --json tagName -q .tagName)
+        tag="${INPUT_TAG:-$latest}"
+
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        # Releasing an older version later must not mark it as the latest
+        if [ "$tag" = "$latest" ]; then
+          echo "latest=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "latest=false" >> "$GITHUB_OUTPUT"
+        fi
+        echo "Upstream release: $tag"
+
+        if [ "$NOTES_ONLY" = "true" ]; then
+          echo "action=notes" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # A push only creates releases that do not exist yet, a manual run
+        # rebuilds an existing one
+        if [ "$EVENT" = "push" ] && gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+          echo "Release $tag exists already, nothing to do."
+          echo "action=skip" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Upstream tags its releases on release branches, not on master. Only
+        # release once master has been merged after the release, so that
+        # merge conflicts have been resolved on st0ny-main.
+        git fetch --no-tags "https://github.com/$UPSTREAM" \
+          "refs/heads/master:refs/upstream/master" \
+          "refs/tags/$tag:refs/upstream-tags/$tag"
+
+        base=$(git merge-base HEAD refs/upstream/master)
+
+        if [ "$(git log -1 --format=%ct "$base")" -lt "$(git log -1 --format=%ct "refs/upstream-tags/$tag^{commit}")" ]; then
+          if [ "$EVENT" = "push" ]; then
+            echo "::notice::Upstream has not been merged into st0ny-main since $tag, no release created."
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::Upstream has not been merged into st0ny-main since $tag."
+          exit 1
+        fi
+
+        echo "action=release" >> "$GITHUB_OUTPUT"
+
+  tag:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ needs.prepare.outputs.action == 'release' }}
+
+    steps:
+    - name: Check token
+      env:
+        RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      run: |
+        if [ -z "$RELEASE_TOKEN" ]; then
+          echo "::error::Secret RELEASE_TOKEN is missing, it is needed to push release tags."
+          exit 1
+        fi
+
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.RELEASE_TOKEN }}
+
+    - name: Tag upstream release with the modifications
+      env:
+        TAG: ${{ needs.prepare.outputs.tag }}
+      run: |
+        set -o pipefail
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git fetch --no-tags "https://github.com/$UPSTREAM" \
+          "refs/heads/master:refs/upstream/master" \
+          "+refs/tags/*:refs/upstream-tags/*"
+
+        upstream_commit=$(git rev-parse "refs/upstream-tags/$TAG^{commit}")
+        force=
+
+        if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+          if [ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$upstream_commit" ]; then
+            echo "Tag $TAG already carries the modifications, keeping it."
+            exit 0
+          fi
+          # A plain copy of the upstream tag gets replaced
+          force=--force
+        fi
+
+        # A branch port/<tag> holds the modifications ported to an upstream
+        # release by hand, for releases they do not apply to automatically
+        if git fetch --no-tags origin "refs/heads/port/$TAG:refs/port" 2> /dev/null; then
+          if ! git merge-base --is-ancestor "$upstream_commit" refs/port; then
+            echo "::error::Branch port/$TAG is not based on upstream $TAG."
+            exit 1
+          fi
+
+          echo "Using the modifications ported by hand on port/$TAG."
+          git checkout --detach refs/port
+          ported=true
+        else
+          # All modifications are the difference between st0ny-main and the
+          # upstream commit it was last merged with, including conflict
+          # resolutions. The CI configuration stays as it is upstream.
+          main=$(git rev-parse HEAD)
+          base=$(git merge-base "$main" refs/upstream/master)
+          git diff --binary "$base" "$main" -- . ':(exclude).github' > "$RUNNER_TEMP/mods.patch"
+
+          git checkout --detach "$upstream_commit"
+
+          if ! git apply --3way --index --whitespace=nowarn "$RUNNER_TEMP/mods.patch"; then
+            echo "::error::The modifications do not apply to upstream $TAG, see the conflicts above. Port them by hand on a branch port/$TAG."
+            git status --short
+            exit 1
+          fi
+
+          {
+            echo "WoW modifications for DXVK $TAG"
+            echo
+            # Commits from upstream release branches are not modifications
+            git log --no-merges --reverse --format='- %s' "$base..$main" \
+              --not --glob='refs/upstream-tags/*' -- . ':(exclude).github'
+          } > "$RUNNER_TEMP/message.txt"
+
+          git commit -q -F "$RUNNER_TEMP/message.txt"
+          ported=false
+        fi
+
+        git tag -f -a "$TAG" -m "DXVK $TAG modded for WoW with Project Reforged"
+        git push $force origin "refs/tags/$TAG"
+
+        # The tag keeps the ported commit, the branch is not needed anymore
+        if [ "$ported" = "true" ]; then
+          git push origin --delete "port/$TAG"
+        fi
+
+  build-d3d9-x32:
+    runs-on: ubuntu-latest
+    needs: [prepare, tag]
+    if: ${{ needs.prepare.outputs.action == 'release' }}
     container: archlinux/archlinux:base-devel
 
     steps:
@@ -31,28 +206,34 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v6
       with:
-        ref: ${{ env.RELEASE_SHA }}
+        ref: refs/tags/${{ needs.prepare.outputs.tag }}
         submodules: recursive
         fetch-depth: 0
 
     - name: Build release
+      env:
+        TAG: ${{ needs.prepare.outputs.tag }}
       run: |
-        ./package-release.sh ${RELEASE_TAG} build --no-package --32-only
+        ./package-release.sh "$TAG" build --no-package --32-only
+        cp "build/dxvk-$TAG/x32/d3d9.dll" d3d9.dll
 
     - name: Upload d3d9.dll
       uses: actions/upload-artifact@v7
       with:
         name: d3d9-x32
-        path: build/dxvk-${{ env.RELEASE_TAG }}/x32/d3d9.dll
+        path: d3d9.dll
         if-no-files-found: error
 
   release:
     runs-on: ubuntu-latest
-    needs: build-d3d9-x32
+    needs: [prepare, build-d3d9-x32]
     # Also run when the build was skipped for a notes-only update
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && (needs.prepare.outputs.action == 'release' || needs.prepare.outputs.action == 'notes') }}
     permissions:
       contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      NOTES_ONLY: ${{ needs.prepare.outputs.action == 'notes' }}
 
     steps:
     - name: Checkout README
@@ -62,7 +243,7 @@ jobs:
         sparse-checkout-cone-mode: false
 
     - name: Download d3d9.dll
-      if: ${{ !inputs.notes_only }}
+      if: ${{ needs.prepare.outputs.action == 'release' }}
       uses: actions/download-artifact@v7
       with:
         name: d3d9-x32
@@ -88,7 +269,7 @@ jobs:
         {
           echo "A version of DXVK tailored to World of Warcraft 1.12 and 3.3.5a as well as Project Reforged."
           echo
-          echo "This release contains the 32-bit d3d9.dll, built from upstream DXVK $RELEASE_TAG with the following modifications:"
+          echo "This release contains the 32-bit d3d9.dll, built from upstream DXVK $TAG with the following modifications:"
           cat mods.md
           echo "## Installation"
           echo
@@ -100,11 +281,11 @@ jobs:
           echo
           echo "---"
           echo
-          echo "## Original release notes of DXVK $RELEASE_TAG"
+          echo "## Original release notes of DXVK $TAG"
           echo
           # Point bare issue and PR references like "#1234" to the upstream
           # repository, they would otherwise link to this fork
-          gh release view "$RELEASE_TAG" --repo doitsujin/dxvk --json body -q .body |
+          gh release view "$TAG" --repo "$UPSTREAM" --json body -q .body |
             perl -pe 's{(?<![\w/&])(?<!\]\()#(\d+)\b}{doitsujin/dxvk#$1}g'
         } > notes.md
 
@@ -112,20 +293,24 @@ jobs:
 
     - name: Create release
       env:
-        GH_TOKEN: ${{ github.token }}
+        # GITHUB_TOKEN may not create releases on tags that differ from the
+        # default branch in their workflow files
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
         GH_REPO: ${{ github.repository }}
-        NOTES_ONLY: ${{ inputs.notes_only }}
+        LATEST: ${{ needs.prepare.outputs.latest }}
       run: |
-        if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-          gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file notes.md
+        title="DXVK $TAG (modded for WoW with Project Reforged)"
+
+        if gh release view "$TAG" > /dev/null 2>&1; then
+          gh release edit "$TAG" --title "$title" --notes-file notes.md
         elif [ "$NOTES_ONLY" = "true" ]; then
-          echo "::error::Release $RELEASE_TAG does not exist, run without notes_only"
+          echo "::error::Release $TAG does not exist, run without notes_only"
           exit 1
         fi
 
         # Zip archives on the release other than the current one
         old_zips() {
-          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" \
+          gh api "repos/$GH_REPO/releases/tags/$TAG" \
             --jq '.assets[] | select((.name | endswith(".zip")) and .name != env.ZIP_FILE) | .id'
         }
 
@@ -140,17 +325,16 @@ jobs:
         cp build/d3d9.dll pkg/
         (cd pkg && zip "../$ZIP_FILE" d3d9.dll)
 
-        if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-          gh release upload "$RELEASE_TAG" "$ZIP_FILE" --clobber
+        if gh release view "$TAG" > /dev/null 2>&1; then
+          gh release upload "$TAG" "$ZIP_FILE" --clobber
 
           for id in $(old_zips); do
             gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"
           done
         else
-          # The tag has to exist already: GITHUB_TOKEN may not create it, and
-          # passing the tagged commit as target is refused as well
-          gh release create "$RELEASE_TAG" "$ZIP_FILE" \
+          gh release create "$TAG" "$ZIP_FILE" \
             --verify-tag \
-            --title "$RELEASE_TITLE" \
+            --latest="$LATEST" \
+            --title "$title" \
             --notes-file notes.md
         fi
