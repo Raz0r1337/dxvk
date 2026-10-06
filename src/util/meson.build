@@ -21,6 +21,15 @@ util_src = files([
   'log/log.cpp',
   'log/log_debug.cpp',
 
+  'hqx/hq2x.cpp',
+  'hqx/hq3x.cpp',
+  'hqx/hq4x.cpp',
+  'hqx/hqx_init.cpp',
+
+  'stb/stb_image.cpp',
+
+  'metrohash/metrohash64.cpp',
+
   'sha1/sha1.c',
   'sha1/sha1_util.cpp',
 
