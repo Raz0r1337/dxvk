@@ -144,22 +144,15 @@ jobs:
 
         if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
           if [ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$upstream_commit" ]; then
-            if [ "$RECREATE" != "true" ]; then
-              echo "Tag $TAG already carries the modifications, keeping it."
-              exit 0
-            fi
             existing=$(git rev-parse "refs/tags/$TAG^{commit}")
           fi
-          # A plain copy of the upstream tag gets replaced
           force=--force
         fi
 
-        if [ -n "$existing" ]; then
-          echo "Tagging the modifications of the existing tag $TAG again."
-          git checkout --detach "$existing"
         # A branch port/<tag> holds the modifications ported to an upstream
-        # release by hand, for releases they do not apply to automatically
-        elif git fetch --no-tags origin "refs/heads/port/$TAG:refs/port" 2> /dev/null; then
+        # release by hand, for releases they do not apply to automatically.
+        # It also replaces the modifications of an existing tag.
+        if git fetch --no-tags origin "refs/heads/port/$TAG:refs/port" 2> /dev/null; then
           if ! git merge-base --is-ancestor "$upstream_commit" refs/port; then
             echo "::error::Branch port/$TAG is not based on upstream $TAG."
             exit 1
@@ -168,6 +161,14 @@ jobs:
           echo "Using the modifications ported by hand on port/$TAG."
           git checkout --detach refs/port
           ported=true
+        elif [ -n "$existing" ]; then
+          if [ "$RECREATE" != "true" ]; then
+            echo "Tag $TAG already carries the modifications, keeping it."
+            exit 0
+          fi
+
+          echo "Tagging the modifications of the existing tag $TAG again."
+          git checkout --detach "$existing"
         else
           # All modifications are the difference between st0ny-main and the
           # upstream commit it was last merged with, including conflict
