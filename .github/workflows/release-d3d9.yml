@@ -86,7 +86,7 @@ jobs:
         fi
 
         {
-          echo "A version of DXVK tailored to World of Warcraft 3.3.5a and Project Reforged."
+          echo "A version of DXVK tailored to World of Warcraft 1.12 and 3.3.5a as well as Project Reforged."
           echo
           echo "This release contains the 32-bit d3d9.dll, built from upstream DXVK $RELEASE_TAG with the following modifications:"
           cat mods.md
