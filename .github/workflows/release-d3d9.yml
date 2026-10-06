@@ -18,6 +18,10 @@ on:
         description: Only update title, notes and zip name, keep the published d3d9.dll
         type: boolean
         default: false
+      recreate:
+        description: Delete and recreate an existing release and its tag, keeping the modified source
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -122,6 +126,7 @@ jobs:
     - name: Tag upstream release with the modifications
       env:
         TAG: ${{ needs.prepare.outputs.tag }}
+        RECREATE: ${{ inputs.recreate }}
       run: |
         set -o pipefail
 
@@ -134,19 +139,27 @@ jobs:
 
         upstream_commit=$(git rev-parse "refs/upstream-tags/$TAG^{commit}")
         force=
+        existing=
+        ported=false
 
         if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
           if [ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$upstream_commit" ]; then
-            echo "Tag $TAG already carries the modifications, keeping it."
-            exit 0
+            if [ "$RECREATE" != "true" ]; then
+              echo "Tag $TAG already carries the modifications, keeping it."
+              exit 0
+            fi
+            existing=$(git rev-parse "refs/tags/$TAG^{commit}")
           fi
           # A plain copy of the upstream tag gets replaced
           force=--force
         fi
 
+        if [ -n "$existing" ]; then
+          echo "Tagging the modifications of the existing tag $TAG again."
+          git checkout --detach "$existing"
         # A branch port/<tag> holds the modifications ported to an upstream
         # release by hand, for releases they do not apply to automatically
-        if git fetch --no-tags origin "refs/heads/port/$TAG:refs/port" 2> /dev/null; then
+        elif git fetch --no-tags origin "refs/heads/port/$TAG:refs/port" 2> /dev/null; then
           if ! git merge-base --is-ancestor "$upstream_commit" refs/port; then
             echo "::error::Branch port/$TAG is not based on upstream $TAG."
             exit 1
@@ -180,10 +193,16 @@ jobs:
           } > "$RUNNER_TEMP/message.txt"
 
           git commit -q -F "$RUNNER_TEMP/message.txt"
-          ported=false
         fi
 
-        git tag -f -a "$TAG" -m "DXVK $TAG modded for WoW with Project Reforged"
+        # GitHub lists releases by the date of their tags, so the tag gets
+        # the date of the upstream release
+        tag_date=$(git for-each-ref --format='%(taggerdate:iso-strict)' "refs/upstream-tags/$TAG")
+        if [ -z "$tag_date" ]; then
+          tag_date=$(git log -1 --format=%cI "$upstream_commit")
+        fi
+
+        GIT_COMMITTER_DATE="$tag_date" git tag -f -a "$TAG" -m "DXVK $TAG modded for WoW with Project Reforged"
         git push $force origin "refs/tags/$TAG"
 
         # The tag keeps the ported commit, the branch is not needed anymore
@@ -298,8 +317,14 @@ jobs:
         GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
         GH_REPO: ${{ github.repository }}
         LATEST: ${{ needs.prepare.outputs.latest }}
+        RECREATE: ${{ inputs.recreate && needs.prepare.outputs.action == 'release' }}
       run: |
         title="DXVK $TAG (modded for WoW with Project Reforged)"
+
+        # A release keeps the date of the tag it was created with
+        if [ "$RECREATE" = "true" ] && gh release view "$TAG" > /dev/null 2>&1; then
+          gh release delete "$TAG" --yes
+        fi
 
         if gh release view "$TAG" > /dev/null 2>&1; then
           gh release edit "$TAG" --title "$title" --notes-file notes.md
