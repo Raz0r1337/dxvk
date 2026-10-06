@@ -1,6 +1,18 @@
-# DXVK
+# DXVK modded for WoW
 
-A Vulkan-based translation layer for Direct3D 8/9/10/11 which allows running 3D applications on Linux using Wine.
+A fork of [DXVK](https://github.com/doitsujin/dxvk) with the following modifications:
+
+1. **`dxvk.conf` is located in WoW's `WTF` directory.** DXVK looks for `WTF/dxvk.conf` first and falls back to `dxvk.conf` in the game directory if it does not exist. `DXVK_CONFIG_FILE` still takes precedence.
+2. **Logs are written to WoW's `Logs` folder.** If that folder does not exist, the logs are written to the game directory instead. `DXVK_LOG_PATH` still takes precedence.
+3. **The hardware cursor size is configurable.** Add the line `d3d9.enlargeHardwareCursor = 1-4` to `dxvk.conf` to enlarge or reduce the cursor:
+   - `1`: original size
+   - `2`: double size (default)
+   - `3`: triple size
+   - `4`: quadruple size
+
+Releases of this fork can be found [here](https://github.com/Raz0r1337/dxvk/releases). They contain a zip archive with only the 32-bit `d3d9.dll`, which goes into the WoW directory next to the game executable.
+
+DXVK is a Vulkan-based translation layer for Direct3D 8/9/10/11 which allows running 3D applications on Linux using Wine.
 
 For the current status of the project, please refer to the [project wiki](https://github.com/doitsujin/dxvk/wiki).
 
