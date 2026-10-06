@@ -63,8 +63,18 @@ namespace dxvk {
 #endif
         auto path = getFileName(m_fileName);
 
-        if (!path.empty())
+        if (!path.empty()) {
           m_fileStream = std::ofstream(str::topath(path.c_str()).c_str());
+
+          // If there is no "Logs" directory to write to, fall back to
+          // the working directory rather than not logging at all.
+          if (!m_fileStream.is_open()) {
+            path = getFileName(m_fileName, false);
+
+            if (!path.empty())
+              m_fileStream = std::ofstream(str::topath(path.c_str()).c_str());
+          }
+        }
       }
 
       std::stringstream stream(message);
@@ -121,9 +131,9 @@ namespace dxvk {
   }
   
   
-  std::string Logger::getFileName(const std::string& base) {
+  std::string Logger::getFileName(const std::string& base, bool useLogDir) {
     std::string path = env::getEnvVar("DXVK_LOG_PATH");
-    
+
     if (path == "none")
       return std::string();
 
@@ -131,6 +141,11 @@ namespace dxvk {
     // Don't create a log file if we're writing to wine's console output
     if (path.empty() && m_wineLogOutput)
       return std::string();
+
+    // Write to the game's "Logs" directory by default so that our log
+    // files end up next to the ones the game itself creates.
+    if (path.empty() && useLogDir)
+      path = "Logs";
 #endif
 
     if (!path.empty() && *path.rbegin() != '/')

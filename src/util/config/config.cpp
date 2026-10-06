@@ -1738,12 +1738,19 @@ namespace dxvk {
   Config Config::getUserConfig() {
     Config config;
 
-    // Load either $DXVK_CONFIG_FILE or $PWD/dxvk.conf
+    // Load either $DXVK_CONFIG_FILE, $PWD/WTF/dxvk.conf or $PWD/dxvk.conf
     std::string filePath = env::getEnvVar("DXVK_CONFIG_FILE");
     std::string confLine = env::getEnvVar("DXVK_CONFIG");
 
-    if (filePath == "")
-      filePath = "dxvk.conf";
+    if (filePath == "") {
+      // Prefer the game's "WTF" directory so that the config file can be
+      // kept together with the other settings, but keep supporting a
+      // config file in the working directory itself.
+      filePath = "WTF/dxvk.conf";
+
+      if (!std::ifstream(str::topath(filePath.c_str()).c_str()))
+        filePath = "dxvk.conf";
+    }
 
     // Open the file if it exists
     std::ifstream stream(str::topath(filePath.c_str()).c_str());
