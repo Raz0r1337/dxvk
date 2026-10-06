@@ -64,7 +64,8 @@ namespace dxvk {
     void emitMsg(LogLevel level, const std::string& message);
     
     std::string getFileName(
-      const std::string& base);
+      const std::string& base,
+            bool         useLogDir = true);
 
     static LogLevel getMinLogLevel();
 
