@@ -86,8 +86,18 @@ jobs:
         fi
 
         {
-          echo "32-bit d3d9.dll built from upstream DXVK $RELEASE_TAG with the following modifications:"
+          echo "A version of DXVK tailored to World of Warcraft 3.3.5a and Project Reforged."
+          echo
+          echo "This release contains the 32-bit d3d9.dll, built from upstream DXVK $RELEASE_TAG with the following modifications:"
           cat mods.md
+          echo "## Installation"
+          echo
+          echo "1. Download \`$ZIP_FILE\` and extract \`d3d9.dll\` into your WoW directory, next to the game executable."
+          echo '2. Optional: create `WTF/dxvk.conf` to change settings, e.g. `d3d9.enlargeHardwareCursor = 1` for the original cursor size.'
+          echo '3. To uninstall, delete `d3d9.dll` from the WoW directory.'
+          echo
+          echo "A GPU and driver with Vulkan support are required."
+          echo
           echo "---"
           echo
           echo "## Original release notes of DXVK $RELEASE_TAG"
