@@ -56,14 +56,15 @@ namespace dxvk {
    * \brief Queued frame
    */
   struct PresenterFrame {
-    uint64_t                frameId       = 0u;
-    Rc<DxvkLatencyTracker>  tracker       = nullptr;
-    VkPresentModeKHR        mode          = VK_PRESENT_MODE_FIFO_KHR;
-    VkResult                result        = VK_NOT_READY;
-    uint64_t                targetTime    = 0u;
-    uint64_t                deadline      = 0u;
-    bool                    isTimed       = false;
-    bool                    doWait        = false;
+    uint64_t                frameId         = 0u;
+    Rc<DxvkLatencyTracker>  tracker         = nullptr;
+    VkPresentModeKHR        mode            = VK_PRESENT_MODE_FIFO_KHR;
+    VkResult                result          = VK_NOT_READY;
+    uint64_t                targetTime      = 0u;
+    uint64_t                targetDeadline  = 0u;
+    uint64_t                timingDomainId  = 0u;
+    bool                    isTimed         = false;
+    bool                    doWait          = false;
   };
 
   /**
@@ -369,6 +370,9 @@ namespace dxvk {
     VkSurfaceFormatKHR          m_preferredFormat = { };
     uint32_t                    m_preferredSyncInterval = 1u;
 
+    bool                        m_calibrationWarned = false;
+    bool                        m_calibrationFailed = false;
+
     bool                        m_dirtySwapchain = false;
     bool                        m_dirtySurface = false;
 
@@ -478,14 +482,14 @@ namespace dxvk {
 
     void updateTimingMode();
 
-    void recalibrateTimeDomains();
+    bool recalibrateTimeDomains();
 
     bool updatePresentTiming(uint64_t frameId);
 
     void commitTimingFeedback(
       const PresenterTimingFeedback&  feedback);
 
-    void waitUntilFrameTargetTime(
+    bool waitUntilFrameTargetTime(
       const PresenterFrame&           frame);
 
     bool hasQpcDomain();
@@ -500,6 +504,11 @@ namespace dxvk {
     VkResult createSurface();
 
     VkResult createLatencySemaphore();
+
+    VkResult getCalibratedTimestamps(
+            uint32_t                  timestampCount,
+      const VkCalibratedTimestampInfoKHR* pTimestampInfos,
+            uint64_t*                 pTimestamps);
 
     void destroySwapchain();
 
