@@ -30,7 +30,7 @@ concurrency:
 env:
   UPSTREAM: doitsujin/dxvk
   # No spaces: GitHub replaces them with dots in asset names
-  ZIP_FILE: DXVK-WoW-PR.zip
+  ZIP_FILE: DXVK-WoW.zip
 
 jobs:
   prepare:
@@ -203,7 +203,7 @@ jobs:
           tag_date=$(git log -1 --format=%cI "$upstream_commit")
         fi
 
-        GIT_COMMITTER_DATE="$tag_date" git tag -f -a "$TAG" -m "DXVK $TAG modded for WoW with Project Reforged"
+        GIT_COMMITTER_DATE="$tag_date" git tag -f -a "$TAG" -m "DXVK $TAG modded for WoW"
         git push $force origin "refs/tags/$TAG"
 
         # The tag keeps the ported commit, the branch is not needed anymore
@@ -256,9 +256,12 @@ jobs:
       NOTES_ONLY: ${{ needs.prepare.outputs.action == 'notes' }}
 
     steps:
+    # The README of the release tag lists the modifications that are
+    # actually part of that release
     - name: Checkout README
       uses: actions/checkout@v6
       with:
+        ref: refs/tags/${{ needs.prepare.outputs.tag }}
         sparse-checkout: README.md
         sparse-checkout-cone-mode: false
 
@@ -287,7 +290,8 @@ jobs:
         fi
 
         {
-          echo "A version of DXVK tailored to World of Warcraft 1.12 and 3.3.5a as well as Project Reforged."
+          echo "A version of DXVK modded and optimized for Stormhand's Project Reforged and Trimitor's WotLK 3.3.5a HD Client."
+          echo "Specifically adapted to the folder structure of World of Warcraft 1.12 and 3.3.5a."
           echo
           echo "This release contains the 32-bit d3d9.dll, built from upstream DXVK $TAG with the following modifications:"
           cat mods.md
@@ -320,7 +324,7 @@ jobs:
         LATEST: ${{ needs.prepare.outputs.latest }}
         RECREATE: ${{ inputs.recreate && needs.prepare.outputs.action == 'release' }}
       run: |
-        title="DXVK $TAG (modded for WoW with Project Reforged)"
+        title="DXVK $TAG (modded for WoW)"
 
         # A release keeps the date of the tag it was created with
         if [ "$RECREATE" = "true" ] && gh release view "$TAG" > /dev/null 2>&1; then
