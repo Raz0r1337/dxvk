@@ -1,0 +1,119 @@
+name: Sync with upstream DXVK
+
+# Merges upstream master into st0ny-main once a day. The push triggers the
+# release workflow, which creates a release when upstream has released a new
+# version. Merge conflicts are reported in an issue assigned to the owner.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: doitsujin/dxvk
+  BRANCH: st0ny-main
+  ISSUE_TITLE: Merge conflict with upstream DXVK
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+    - name: Check token
+      env:
+        RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      run: |
+        if [ -z "$RELEASE_TOKEN" ]; then
+          echo "::error::Secret RELEASE_TOKEN is missing, it is needed to push the merge."
+          exit 1
+        fi
+
+    # Pushing with the token instead of GITHUB_TOKEN triggers the release
+    # workflow, and allows merging upstream changes to workflow files
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ env.BRANCH }}
+        fetch-depth: 0
+        token: ${{ secrets.RELEASE_TOKEN }}
+
+    - name: Merge upstream master
+      id: merge
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git fetch --no-tags "https://github.com/$UPSTREAM" master:refs/upstream/master
+
+        if git merge-base --is-ancestor refs/upstream/master HEAD; then
+          echo "$BRANCH already contains upstream master."
+          echo "result=current" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if git merge --no-edit -m "Merge branch 'doitsujin:master' into $BRANCH" refs/upstream/master; then
+          git push origin "HEAD:$BRANCH"
+          echo "result=merged" >> "$GITHUB_OUTPUT"
+        else
+          git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
+          git merge --abort
+          echo "result=conflict" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Report merge conflict
+      if: ${{ steps.merge.outputs.result == 'conflict' }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        {
+          echo "Merging upstream \`$UPSTREAM\` master into \`$BRANCH\` failed with conflicts in:"
+          echo
+          sed 's/.*/- `&`/' "$RUNNER_TEMP/conflicts.txt"
+          echo
+          echo "The \"Sync fork\" button cannot resolve this. Merge upstream in a local clone instead:"
+          echo
+          echo '```'
+          echo "git checkout $BRANCH"
+          echo "git pull"
+          echo "git fetch https://github.com/$UPSTREAM.git master"
+          echo "git merge FETCH_HEAD"
+          echo "# resolve the conflicts, then"
+          echo "git commit"
+          echo "git push"
+          echo '```'
+          echo
+          echo "This issue is closed automatically once the daily sync succeeds again."
+          echo
+          echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        } > "$RUNNER_TEMP/issue.md"
+
+        number=$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number -q '.[0].number')
+
+        if [ -n "$number" ]; then
+          gh issue comment "$number" --body-file "$RUNNER_TEMP/issue.md"
+        else
+          gh issue create --title "$ISSUE_TITLE" --body-file "$RUNNER_TEMP/issue.md" \
+            --assignee "$GITHUB_REPOSITORY_OWNER"
+        fi
+
+        echo "::error::Merging upstream master failed with conflicts, see the issue."
+        exit 1
+
+    - name: Close conflict issue
+      if: ${{ steps.merge.outputs.result == 'merged' || steps.merge.outputs.result == 'current' }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        number=$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number -q '.[0].number')
+
+        if [ -n "$number" ]; then
+          gh issue close "$number" --comment "$BRANCH contains upstream master again."
+        fi
