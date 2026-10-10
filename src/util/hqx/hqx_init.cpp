@@ -17,6 +17,7 @@
  */
 
 #include <cstdint>
+#include "hqx_common.h"
 #include "hqx.h"
 
 uint32_t   RGBtoYUV[16777216];
