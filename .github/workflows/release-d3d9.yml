@@ -290,8 +290,9 @@ jobs:
         fi
 
         {
-          echo "A version of DXVK modded and optimized for Stormhand's Project Reforged and Trimitor's WotLK 3.3.5a HD Client."
-          echo "Specifically adapted to the folder structure of World of Warcraft 1.12 and 3.3.5a."
+          echo "A version of DXVK specifically adapted to the folder structure of World of Warcraft 1.12 and 3.3.5a."
+          echo
+          echo "Perfect for Stormhand's Project Reforged and Trimitor's WotLK 3.3.5a HD Client."
           echo
           echo "This release contains the 32-bit d3d9.dll, built from upstream DXVK $TAG with the following modifications:"
           cat mods.md

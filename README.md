@@ -1,5 +1,9 @@
 # DXVK modded for WoW
 
+A version of DXVK specifically adapted to the folder structure of World of Warcraft 1.12 and 3.3.5a.
+
+Perfect for Stormhand's Project Reforged and Trimitor's WotLK 3.3.5a HD Client.
+
 A fork of [DXVK](https://github.com/doitsujin/dxvk) with the following modifications:
 
 1. **`dxvk.conf` is located in WoW's `WTF` directory.** DXVK looks for `WTF/dxvk.conf` first and falls back to `dxvk.conf` in the game directory if it does not exist. `DXVK_CONFIG_FILE` still takes precedence.
